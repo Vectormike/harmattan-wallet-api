@@ -106,6 +106,95 @@ All amounts and rates are JSON strings to prevent binary floating-point errors.
 | `GET` | `/v1/transactions/:id` | Get one transaction |
 | `GET` | `/v1/rates` | Get the complete 25-rate matrix |
 
+### Endpoint walkthrough
+
+The examples below are abridged. Amounts and rates remain strings in every response.
+
+Create a wallet:
+
+```http
+POST /v1/wallets
+Content-Type: application/json
+
+{ "email": "amara@example.com" }
+
+HTTP/1.1 201 Created
+{ "id": "11111111-1111-4111-8111-111111111111", "email": "amara@example.com", "balances": { "cNGN": "0.00000000", "cGHS": "0.00000000", "cXAF": "0.00000000", "USDx": "0.00000000", "EURx": "0.00000000" }, "totalUsdEquivalent": "0.00000000" }
+```
+
+Deposit simulated funds:
+
+```http
+POST /v1/wallets/11111111-1111-4111-8111-111111111111/deposits
+Content-Type: application/json
+Idempotency-Key: deposit-example-0001
+
+{ "currency": "cNGN", "amount": "1600.00" }
+
+HTTP/1.1 201 Created
+{ "transaction": { "id": "deposit-transaction-id", "type": "deposit" }, "balance": { "walletId": "11111111-1111-4111-8111-111111111111", "currency": "cNGN", "available": "1600.00000000" } }
+```
+
+Create and execute a swap quote:
+
+```http
+POST /v1/wallets/11111111-1111-4111-8111-111111111111/swaps/quotes
+Content-Type: application/json
+
+{ "sourceCurrency": "cNGN", "destinationCurrency": "USDx", "sourceAmount": "1600.00" }
+
+HTTP/1.1 201 Created
+{ "quoteId": "swap-quote-id", "sourceAmount": "1600.00000000", "destinationAmount": "1.00000000", "quotedRate": "0.000625000000000000", "expiresAt": "2026-10-29T15:01:00.000Z" }
+```
+
+```http
+POST /v1/wallets/11111111-1111-4111-8111-111111111111/swaps
+Content-Type: application/json
+Idempotency-Key: swap-example-0001
+
+{ "quoteId": "swap-quote-id" }
+
+HTTP/1.1 201 Created
+{ "transaction": { "id": "swap-transaction-id", "type": "swap" }, "balances": { "cNGN": "0.00000000", "USDx": "1.00000000" } }
+```
+
+Transfer between wallets with automatic conversion:
+
+```http
+POST /v1/transfers
+Content-Type: application/json
+Idempotency-Key: transfer-example-0001
+
+{
+  "senderWalletId": "11111111-1111-4111-8111-111111111111",
+  "receiverWalletId": "22222222-2222-4222-8222-222222222222",
+  "sourceCurrency": "USDx",
+  "destinationCurrency": "cGHS",
+  "sourceAmount": "0.50"
+}
+
+HTTP/1.1 201 Created
+{ "transaction": { "id": "transfer-transaction-id", "type": "transfer", "sourceAmount": "0.50000000", "destinationAmount": "7.75000000", "rate": "15.500000000000000000" }, "senderBalance": { "currency": "USDx", "available": "0.50000000" }, "receiverBalance": { "currency": "cGHS", "available": "7.75000000" } }
+```
+
+Read balances, history, one transaction, and rates:
+
+```http
+GET /v1/wallets/11111111-1111-4111-8111-111111111111
+GET /v1/wallets/11111111-1111-4111-8111-111111111111/transactions?type=TRANSFER&currency=USDx&limit=20
+GET /v1/transactions/transfer-transaction-id
+GET /v1/rates
+```
+
+Example responses, in the same order:
+
+```text
+wallet:      { "id": "1111...", "balances": { "cNGN": "0.00000000", "USDx": "0.50000000" }, "totalUsdEquivalent": "0.50000000", "valuation": { "currency": "USDx", "snapshotId": "fx-snapshot-id" } }
+history:     { "data": [{ "id": "transfer-transaction-id", "type": "transfer", "direction": "sent" }], "pageInfo": { "hasNextPage": false, "nextCursor": null } }
+transaction: { "id": "transfer-transaction-id", "type": "transfer", "sourceAmount": "0.50000000", "destinationAmount": "7.75000000" }
+rates:       { "snapshotId": "fx-snapshot-id", "source": "live", "rateAsOf": "2026-10-29T00:02:31.000Z", "rates": [{ "base": "USDx", "quote": "cGHS", "rate": "11.639916000000000000" }] }
+```
+
 The versioned frontend contract is in:
 
 - `postman/Harmattan-v1.postman_collection.json`
@@ -183,3 +272,26 @@ They may optionally add a short pace delay but never return `429` by themselves.
 Custom migration checks enforce non-negative balances, positive amounts/rates, wallet identifiers, and operation-type invariants. History indexes cover wallet role, cursor order, type, and currency filters.
 
 See [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) for diagrams and request sequences.
+
+## Assumptions and known limitations
+
+- This is a sandbox; deposits are simulated and do not call a payment provider.
+- The brief explicitly does not require full authentication. UUIDs are identifiers, not authorization, so knowing an ID is sufficient to read its sandbox resources.
+- Fixed fallback rates are versioned sandbox configuration, not live market data.
+- Soft deposit and transfer signals provide logging and optional pacing, not production fraud controls.
+- A deployed URL is not required by the assessment; the supported runtime is Docker Compose.
+
+## What was left out and why
+
+- Authentication, wallet ownership, RBAC, KYC/AML, and real payment rails were excluded because the brief asks for a focused sandbox and explicitly makes full authentication optional.
+- External blockchain or bank withdrawals were excluded because they are outside the five requested capabilities.
+- Redis, queues, and background workers were excluded because PostgreSQL already provides the required durable state and cross-instance coordination at this scale.
+- Kubernetes and cloud deployment were excluded because the deliverable requires a one-command local Docker environment, not a hosted URL.
+
+## With more time
+
+- Add authenticated identities, wallet ownership, RBAC, KYC/AML workflows, and audit access logs.
+- Add production metrics and alerts for row-lock waits, provider failures, fallback usage, and reconciliation drift.
+- Add a dedicated administration surface for quote limits, fallback-rate versions, and operational review.
+- Add a second FX provider, reconciliation jobs, and tested provider failover.
+- Add load tests, broader concurrency coverage, and production-grade secret management.

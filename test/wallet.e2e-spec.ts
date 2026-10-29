@@ -1,84 +1,27 @@
-import { execFileSync } from 'node:child_process';
-import { join } from 'node:path';
-import { ValidationPipe } from '@nestjs/common';
 import type { INestApplication } from '@nestjs/common';
-import { Test } from '@nestjs/testing';
-import { PostgreSqlContainer } from '@testcontainers/postgresql';
-import type { StartedPostgreSqlContainer } from '@testcontainers/postgresql';
 import { Currency } from '@prisma/client';
 import request from 'supertest';
-import { ApiExceptionFilter } from '../src/common/api-exception.filter';
 import { PrismaService } from '../src/database/prisma.service';
+import {
+  closeE2eTestContext,
+  createE2eTestContext,
+  E2eTestContext,
+  resetDatabase,
+} from './e2e-test-context';
 
 describe('Harmattan wallet API', () => {
-  let container: StartedPostgreSqlContainer;
+  let context: E2eTestContext;
   let app: INestApplication;
   let prisma: PrismaService;
 
   beforeAll(async () => {
-    container = await new PostgreSqlContainer('postgres:16.6-bookworm')
-      .withDatabase('harmattan_test')
-      .withUsername('harmattan')
-      .withPassword('harmattan_test')
-      .start();
-
-    process.env.DATABASE_URL = container.getConnectionUri();
-    process.env.FX_PROVIDER_URL = 'http://127.0.0.1:1/unavailable';
-    process.env.FX_REQUEST_TIMEOUT_MS = '100';
-    process.env.FX_REFRESH_WAIT_TIMEOUT_MS = '500';
-    process.env.SWAP_QUOTE_TTL_SECONDS = '60';
-    process.env.SWAP_MAX_RATE_DEVIATION_BPS = '50';
-    process.env.SWAP_MAX_SOURCE_AMOUNT_CNGN = '10000000';
-    process.env.SWAP_MAX_SOURCE_AMOUNT_CGHS = '100000';
-    process.env.SWAP_MAX_SOURCE_AMOUNT_CXAF = '10000000';
-    process.env.SWAP_MAX_SOURCE_AMOUNT_USDX = '10000';
-    process.env.SWAP_MAX_SOURCE_AMOUNT_EURX = '10000';
-
-    execFileSync(
-      join(process.cwd(), 'node_modules/.bin/prisma'),
-      ['migrate', 'deploy'],
-      {
-        env: {
-          ...process.env,
-          DATABASE_URL: container.getConnectionUri(),
-        },
-      },
-    );
-
-    const { AppModule } = await import('../src/app.module');
-    const moduleRef = await Test.createTestingModule({
-      imports: [AppModule],
-    }).compile();
-    app = moduleRef.createNestApplication();
-    app.useGlobalPipes(
-      new ValidationPipe({
-        transform: true,
-        whitelist: true,
-        forbidNonWhitelisted: true,
-      }),
-    );
-    app.useGlobalFilters(new ApiExceptionFilter());
-    await app.init();
-    prisma = app.get(PrismaService);
+    context = await createE2eTestContext();
+    ({ app, prisma } = context);
   }, 120_000);
 
-  beforeEach(async () => {
-    await prisma.$executeRawUnsafe(`
-      TRUNCATE TABLE
-        "idempotency_records",
-        "transactions",
-        "swap_quotes",
-        "wallet_balances",
-        "wallets",
-        "fx_snapshots"
-      CASCADE
-    `);
-  });
+  beforeEach(() => resetDatabase(prisma));
 
-  afterAll(async () => {
-    await app?.close();
-    await container?.stop();
-  });
+  afterAll(() => closeE2eTestContext(context));
 
   it('creates one wallet with five zero balances', async () => {
     const response = await createWallet('amara@example.com');
