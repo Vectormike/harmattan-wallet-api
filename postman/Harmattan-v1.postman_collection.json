@@ -55,7 +55,10 @@
               "script": {
                 "exec": [
                   "pm.test('Wallet created', () => pm.response.to.have.status(201));",
-                  "if (pm.response.code === 201) pm.environment.set('walletId', pm.response.json().id);"
+                  "if (pm.response.code === 201) {",
+                  "  const wallet = pm.response.json();",
+                  "  pm.collectionVariables.set('walletId', wallet.id);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -83,7 +86,10 @@
               "script": {
                 "exec": [
                   "pm.test('Receiver wallet created', () => pm.response.to.have.status(201));",
-                  "if (pm.response.code === 201) pm.environment.set('receiverWalletId', pm.response.json().id);"
+                  "if (pm.response.code === 201) {",
+                  "  const wallet = pm.response.json();",
+                  "  pm.collectionVariables.set('receiverWalletId', wallet.id);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -99,6 +105,22 @@
             "url": "{{baseUrl}}/v1/wallets/{{walletId}}",
             "description": "Returns all five balances and their combined USDx value from one FX snapshot.\n\n**200 fields:** wallet identity, `balances`, `totalUsdEquivalent`, and `valuation` metadata.\n\n**404:** `WALLET_NOT_FOUND`. **503:** FX or database unavailable.\n\nExample: `{ \"balances\": { \"cNGN\": \"1600.00000000\", \"cGHS\": \"0.00000000\", \"cXAF\": \"0.00000000\", \"USDx\": \"0.00000000\", \"EURx\": \"0.00000000\" }, \"totalUsdEquivalent\": \"1.00000000\" }`"
           },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Wallet balances returned', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const wallet = pm.response.json();",
+                  "  pm.collectionVariables.set('walletId', wallet.id);",
+                  "  if (wallet.valuation && wallet.valuation.snapshotId) pm.collectionVariables.set('fxSnapshotId', wallet.valuation.snapshotId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "response": []
         }
       ]
@@ -131,7 +153,11 @@
               "script": {
                 "exec": [
                   "pm.test('Deposit accepted', () => pm.response.to.have.status(201));",
-                  "if (pm.response.code === 201) pm.environment.set('transactionId', pm.response.json().transaction.id);"
+                  "if (pm.response.code === 201) {",
+                  "  const result = pm.response.json();",
+                  "  pm.collectionVariables.set('walletId', result.balance.walletId);",
+                  "  pm.collectionVariables.set('transactionId', result.transaction.id);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -164,7 +190,11 @@
               "script": {
                 "exec": [
                   "pm.test('Quote created', () => pm.response.to.have.status(201));",
-                  "if (pm.response.code === 201) pm.environment.set('quoteId', pm.response.json().quoteId);"
+                  "if (pm.response.code === 201) {",
+                  "  const quote = pm.response.json();",
+                  "  pm.collectionVariables.set('quoteId', quote.quoteId);",
+                  "  pm.collectionVariables.set('walletId', quote.walletId);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -197,7 +227,12 @@
               "script": {
                 "exec": [
                   "pm.test('Swap executed', () => pm.expect([201, 409]).to.include(pm.response.code));",
-                  "if (pm.response.code === 201) pm.environment.set('transactionId', pm.response.json().transaction.id);"
+                  "if (pm.response.code === 201) {",
+                  "  const transaction = pm.response.json().transaction;",
+                  "  pm.collectionVariables.set('transactionId', transaction.id);",
+                  "  pm.collectionVariables.set('walletId', transaction.senderWalletId);",
+                  "  if (transaction.fxSnapshotId) pm.collectionVariables.set('fxSnapshotId', transaction.fxSnapshotId);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -235,7 +270,13 @@
               "script": {
                 "exec": [
                   "pm.test('Transfer completed', () => pm.response.to.have.status(201));",
-                  "if (pm.response.code === 201) pm.environment.set('transactionId', pm.response.json().transaction.id);"
+                  "if (pm.response.code === 201) {",
+                  "  const transaction = pm.response.json().transaction;",
+                  "  pm.collectionVariables.set('transactionId', transaction.id);",
+                  "  pm.collectionVariables.set('walletId', transaction.senderWalletId);",
+                  "  pm.collectionVariables.set('receiverWalletId', transaction.receiverWalletId);",
+                  "  if (transaction.fxSnapshotId) pm.collectionVariables.set('fxSnapshotId', transaction.fxSnapshotId);",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -262,8 +303,11 @@
               "script": {
                 "exec": [
                   "pm.test('History returned', () => pm.response.to.have.status(200));",
-                  "const page = pm.response.json().pageInfo;",
-                  "if (page && page.nextCursor) pm.environment.set('cursor', page.nextCursor);"
+                  "if (pm.response.code === 200) {",
+                  "  const history = pm.response.json();",
+                  "  if (history.data && history.data.length > 0) pm.collectionVariables.set('transactionId', history.data[0].id);",
+                  "  pm.collectionVariables.set('cursor', history.pageInfo && history.pageInfo.nextCursor ? history.pageInfo.nextCursor : '');",
+                  "}"
                 ],
                 "type": "text/javascript"
               }
@@ -284,6 +328,24 @@
             "url": "{{baseUrl}}/v1/transactions/{{transactionId}}",
             "description": "Returns one immutable operation.\n\n**200 fields:** `id`, `type`, sender/receiver wallet IDs, source/destination amount and currency, applied rate, rate timestamp/source, FX snapshot ID, and transaction timestamp.\n\n**404:** `TRANSACTION_NOT_FOUND`.\n\nExample: `{ \"type\": \"transfer\", \"sourceAmount\": \"0.50000000\", \"sourceCurrency\": \"USDx\", \"destinationAmount\": \"7.75000000\", \"destinationCurrency\": \"cGHS\" }`"
           },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Transaction returned', () => pm.response.to.have.status(200));",
+                  "if (pm.response.code === 200) {",
+                  "  const transaction = pm.response.json();",
+                  "  pm.collectionVariables.set('transactionId', transaction.id);",
+                  "  if (transaction.senderWalletId) pm.collectionVariables.set('walletId', transaction.senderWalletId);",
+                  "  if (transaction.receiverWalletId) pm.collectionVariables.set('receiverWalletId', transaction.receiverWalletId);",
+                  "  if (transaction.fxSnapshotId) pm.collectionVariables.set('fxSnapshotId', transaction.fxSnapshotId);",
+                  "}"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
           "response": []
         }
       ]
@@ -304,7 +366,8 @@
               "listen": "test",
               "script": {
                 "exec": [
-                  "pm.test('All 25 rates returned', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().rates).to.have.length(25); });"
+                  "pm.test('All 25 rates returned', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().rates).to.have.length(25); });",
+                  "if (pm.response.code === 200) pm.collectionVariables.set('fxSnapshotId', pm.response.json().snapshotId);"
                 ],
                 "type": "text/javascript"
               }
@@ -321,6 +384,7 @@
     { "key": "receiverWalletId", "value": "" },
     { "key": "quoteId", "value": "" },
     { "key": "transactionId", "value": "" },
+    { "key": "fxSnapshotId", "value": "" },
     { "key": "cursor", "value": "" },
     { "key": "depositIdempotencyKey", "value": "postman-deposit-0001" },
     { "key": "swapIdempotencyKey", "value": "postman-swap-0001" },
