@@ -1,0 +1,329 @@
+{
+  "info": {
+    "_postman_id": "c8b5ada2-00cf-46f8-a97c-f9793e18383d",
+    "name": "Harmattan Wallet API v1",
+    "description": "Frontend integration contract for the Operation Borderless wallet sandbox.\n\nAmounts and rates are decimal strings. Deposit, swap execution, and transfer require an `Idempotency-Key`. Reuse the same key only when retrying the exact same body; a changed body with that key returns `409`.\n\nThe deposit amount-window and transfer recipient-velocity checks are informational. They may log or softly pace a request, but they never reject an otherwise valid operation.",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
+  },
+  "item": [
+    {
+      "name": "1. Health",
+      "item": [
+        {
+          "name": "Check API health",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/health",
+            "description": "Checks that the API can reach PostgreSQL.\n\n**200 fields:** `status`, `database`, `timestamp`.\n\n**503:** `DATABASE_UNAVAILABLE`.\n\nExample: `{ \"status\": \"ok\", \"database\": \"up\", \"timestamp\": \"2026-10-29T15:00:00.000Z\" }`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('API is healthy', () => pm.response.to.have.status(200));"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "2. Wallet creation and balances",
+      "item": [
+        {
+          "name": "Create sender wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"amara.{{$timestamp}}@example.com\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/wallets",
+            "description": "Creates one wallet with five zero balances. Supply email, mobile, or both.\n\n**201 fields:** `id`, `email`, `mobile`, `balances`, `totalUsdEquivalent`, `createdAt`.\n\n**400:** invalid or missing identifier. **409:** email/mobile already used.\n\nExample balances: `{ \"cNGN\": \"0.00000000\", \"cGHS\": \"0.00000000\", \"cXAF\": \"0.00000000\", \"USDx\": \"0.00000000\", \"EURx\": \"0.00000000\" }`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Wallet created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.environment.set('walletId', pm.response.json().id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Create receiver wallet",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"email\": \"kwame.{{$timestamp}}@example.com\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/wallets",
+            "description": "Creates the second wallet used in the transfer example. The response shape and errors match Create sender wallet."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Receiver wallet created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.environment.set('receiverWalletId', pm.response.json().id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Get wallet balances",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/wallets/{{walletId}}",
+            "description": "Returns all five balances and their combined USDx value from one FX snapshot.\n\n**200 fields:** wallet identity, `balances`, `totalUsdEquivalent`, and `valuation` metadata.\n\n**404:** `WALLET_NOT_FOUND`. **503:** FX or database unavailable.\n\nExample: `{ \"balances\": { \"cNGN\": \"1600.00000000\", \"cGHS\": \"0.00000000\", \"cXAF\": \"0.00000000\", \"USDx\": \"0.00000000\", \"EURx\": \"0.00000000\" }, \"totalUsdEquivalent\": \"1.00000000\" }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "3. Deposits",
+      "item": [
+        {
+          "name": "Deposit simulated funds",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{depositIdempotencyKey}}",
+                "description": "Reuse this key only to retry this exact body."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"currency\": \"cNGN\",\n  \"amount\": \"1600.00\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/wallets/{{walletId}}/deposits",
+            "description": "Immediately credits one balance and writes a deposit transaction.\n\nTwo same-wallet, same-amount deposits with different keys are both valid. The soft amount-window signal never blocks them.\n\n**201 fields:** `transaction` and resulting `balance`. **400:** validation or missing key. **404:** wallet missing. **409:** key reused with another body.\n\nExample balance: `{ \"walletId\": \"...\", \"currency\": \"cNGN\", \"available\": \"1600.00000000\" }`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Deposit accepted', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.environment.set('transactionId', pm.response.json().transaction.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "4. Swaps",
+      "item": [
+        {
+          "name": "Create swap quote",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"sourceCurrency\": \"cNGN\",\n  \"destinationCurrency\": \"USDx\",\n  \"sourceAmount\": \"1600.00\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/wallets/{{walletId}}/swaps/quotes",
+            "description": "Creates a short-lived server quote. Execute it before `expiresAt`.\n\n**201 fields:** `quoteId`, source/destination currencies and amounts, `quotedRate`, `rateAsOf`, `expiresAt`.\n\n**400:** invalid/same currency. **404:** wallet missing. **422:** per-currency cap or rounded-to-zero result. **503:** FX unavailable.\n\nExample: `{ \"quoteId\": \"...\", \"sourceAmount\": \"1600.00000000\", \"destinationAmount\": \"1.00000000\", \"quotedRate\": \"0.000625000000000000\" }`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Quote created', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.environment.set('quoteId', pm.response.json().quoteId);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        },
+        {
+          "name": "Execute quoted swap",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{swapIdempotencyKey}}",
+                "description": "Reuse this key and quoteId to safely retry."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"quoteId\": \"{{quoteId}}\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/wallets/{{walletId}}/swaps",
+            "description": "Atomically debits the source balance and credits the destination balance using the execution rate.\n\n**201 fields:** `transaction` and both resulting balances. **409:** `FX_QUOTE_EXPIRED`, `FX_RATE_MOVED`, or changed body for the key. **422:** insufficient funds/cap. **503:** FX unavailable.\n\nA rate move over 50 basis points rejects and rolls back the provisional key so a retry is safe."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Swap executed', () => pm.expect([201, 409]).to.include(pm.response.code));",
+                  "if (pm.response.code === 201) pm.environment.set('transactionId', pm.response.json().transaction.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "5. Transfers",
+      "item": [
+        {
+          "name": "Transfer between wallets",
+          "request": {
+            "method": "POST",
+            "header": [
+              { "key": "Content-Type", "value": "application/json" },
+              {
+                "key": "Idempotency-Key",
+                "value": "{{transferIdempotencyKey}}",
+                "description": "Reuse only for an exact retry."
+              }
+            ],
+            "body": {
+              "mode": "raw",
+              "raw": "{\n  \"senderWalletId\": \"{{walletId}}\",\n  \"receiverWalletId\": \"{{receiverWalletId}}\",\n  \"sourceCurrency\": \"USDx\",\n  \"destinationCurrency\": \"cGHS\",\n  \"sourceAmount\": \"0.50\"\n}"
+            },
+            "url": "{{baseUrl}}/v1/transfers",
+            "description": "Atomically debits the sender and credits the receiver. Different currencies convert automatically.\n\nRecipient-velocity detection is informational and never returns `429` by itself.\n\n**201 fields:** `transaction`, `senderBalance`, `receiverBalance`. **400:** validation/missing key. **404:** either wallet missing. **409:** key conflict. **422:** insufficient funds/rounded-to-zero. **503:** FX unavailable."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('Transfer completed', () => pm.response.to.have.status(201));",
+                  "if (pm.response.code === 201) pm.environment.set('transactionId', pm.response.json().transaction.id);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "6. Transaction history",
+      "item": [
+        {
+          "name": "List wallet transactions",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/wallets/{{walletId}}/transactions?limit=20",
+            "description": "Lists deposits, swaps, sent transfers, and received transfers newest first.\n\nOptional query fields: `type` (`DEPOSIT`, `SWAP`, `TRANSFER`), `currency`, `cursor`, and `limit` (1-100, default 20).\n\n**200 fields:** `data` transaction array and `pageInfo` with `hasNextPage` and `nextCursor`. Empty history is `{ \"data\": [], \"pageInfo\": { \"hasNextPage\": false, \"nextCursor\": null } }`.\n\n**400:** invalid filter/cursor. **404:** wallet missing."
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('History returned', () => pm.response.to.have.status(200));",
+                  "const page = pm.response.json().pageInfo;",
+                  "if (page && page.nextCursor) pm.environment.set('cursor', page.nextCursor);"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "7. Single transaction lookup",
+      "item": [
+        {
+          "name": "Get transaction by ID",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/transactions/{{transactionId}}",
+            "description": "Returns one immutable operation.\n\n**200 fields:** `id`, `type`, sender/receiver wallet IDs, source/destination amount and currency, applied rate, rate timestamp/source, FX snapshot ID, and transaction timestamp.\n\n**404:** `TRANSACTION_NOT_FOUND`.\n\nExample: `{ \"type\": \"transfer\", \"sourceAmount\": \"0.50000000\", \"sourceCurrency\": \"USDx\", \"destinationAmount\": \"7.75000000\", \"destinationCurrency\": \"cGHS\" }`"
+          },
+          "response": []
+        }
+      ]
+    },
+    {
+      "name": "8. Rates",
+      "item": [
+        {
+          "name": "Get all conversion rates",
+          "request": {
+            "method": "GET",
+            "header": [],
+            "url": "{{baseUrl}}/v1/rates",
+            "description": "Returns the complete 5-by-5 rate matrix: 25 decimal-string rates including identity rates of 1.\n\n**200 fields:** `snapshotId`, `source`, `provider`, `rateAsOf`, `fetchedAt`, `freshness`, `rates`, and optional `lastLive` fallback metadata.\n\n**503:** `FX_UNAVAILABLE` or database unavailable.\n\nExample rate: `{ \"base\": \"cNGN\", \"quote\": \"USDx\", \"rate\": \"0.000625000000000000\" }`"
+          },
+          "event": [
+            {
+              "listen": "test",
+              "script": {
+                "exec": [
+                  "pm.test('All 25 rates returned', () => { pm.response.to.have.status(200); pm.expect(pm.response.json().rates).to.have.length(25); });"
+                ],
+                "type": "text/javascript"
+              }
+            }
+          ],
+          "response": []
+        }
+      ]
+    }
+  ],
+  "variable": [
+    { "key": "baseUrl", "value": "http://localhost:3000" },
+    { "key": "walletId", "value": "" },
+    { "key": "receiverWalletId", "value": "" },
+    { "key": "quoteId", "value": "" },
+    { "key": "transactionId", "value": "" },
+    { "key": "cursor", "value": "" },
+    { "key": "depositIdempotencyKey", "value": "postman-deposit-0001" },
+    { "key": "swapIdempotencyKey", "value": "postman-swap-0001" },
+    { "key": "transferIdempotencyKey", "value": "postman-transfer-0001" }
+  ]
+}

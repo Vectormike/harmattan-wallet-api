@@ -1,0 +1,68 @@
+services:
+  postgres:
+    image: postgres:16.6-bookworm
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-harmattan}
+      POSTGRES_USER: ${POSTGRES_USER:-harmattan}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-harmattan_local}
+    ports:
+      - "${POSTGRES_PORT:-5433}:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test:
+        [
+          "CMD-SHELL",
+          "pg_isready -U ${POSTGRES_USER:-harmattan} -d ${POSTGRES_DB:-harmattan}",
+        ]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+      start_period: 5s
+
+  app:
+    build: .
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      DATABASE_URL: postgresql://${POSTGRES_USER:-harmattan}:${POSTGRES_PASSWORD:-harmattan_local}@postgres:5432/${POSTGRES_DB:-harmattan}?schema=public
+      FX_PROVIDER_URL: ${FX_PROVIDER_URL:-https://open.er-api.com/v6/latest/USD}
+      FX_REQUEST_TIMEOUT_MS: ${FX_REQUEST_TIMEOUT_MS:-3000}
+      FX_REFRESH_WAIT_TIMEOUT_MS: ${FX_REFRESH_WAIT_TIMEOUT_MS:-5000}
+      FX_FIXED_VERSION: ${FX_FIXED_VERSION:-fixed-v1}
+      FX_FIXED_NGN_PER_USD: ${FX_FIXED_NGN_PER_USD:-1600}
+      FX_FIXED_GHS_PER_USD: ${FX_FIXED_GHS_PER_USD:-15.5}
+      FX_FIXED_XAF_PER_USD: ${FX_FIXED_XAF_PER_USD:-610}
+      FX_FIXED_EUR_PER_USD: ${FX_FIXED_EUR_PER_USD:-0.92}
+      SWAP_QUOTE_TTL_SECONDS: ${SWAP_QUOTE_TTL_SECONDS:-60}
+      SWAP_MAX_RATE_DEVIATION_BPS: ${SWAP_MAX_RATE_DEVIATION_BPS:-50}
+      SWAP_MAX_SOURCE_AMOUNT_CNGN: ${SWAP_MAX_SOURCE_AMOUNT_CNGN:-10000000}
+      SWAP_MAX_SOURCE_AMOUNT_CGHS: ${SWAP_MAX_SOURCE_AMOUNT_CGHS:-100000}
+      SWAP_MAX_SOURCE_AMOUNT_CXAF: ${SWAP_MAX_SOURCE_AMOUNT_CXAF:-10000000}
+      SWAP_MAX_SOURCE_AMOUNT_USDX: ${SWAP_MAX_SOURCE_AMOUNT_USDX:-10000}
+      SWAP_MAX_SOURCE_AMOUNT_EURX: ${SWAP_MAX_SOURCE_AMOUNT_EURX:-10000}
+      DEPOSIT_AMOUNT_WINDOW_SECONDS: ${DEPOSIT_AMOUNT_WINDOW_SECONDS:-60}
+      DEPOSIT_SOFT_THROTTLE_ENABLED: ${DEPOSIT_SOFT_THROTTLE_ENABLED:-false}
+      TRANSFER_VELOCITY_WINDOW_SECONDS: ${TRANSFER_VELOCITY_WINDOW_SECONDS:-60}
+      TRANSFER_DISTINCT_RECIPIENT_THRESHOLD: ${TRANSFER_DISTINCT_RECIPIENT_THRESHOLD:-5}
+      TRANSFER_SOFT_THROTTLE_ENABLED: ${TRANSFER_SOFT_THROTTLE_ENABLED:-false}
+    ports:
+      - "${APP_PORT:-3000}:3000"
+    depends_on:
+      postgres:
+        condition: service_healthy
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "node",
+          "-e",
+          "fetch('http://localhost:3000/health').then(r=>{if(!r.ok)process.exit(1)}).catch(()=>process.exit(1))",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 10
+      start_period: 15s
+
+volumes:
+  postgres_data:

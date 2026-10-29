@@ -1,0 +1,132 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Currency {
+  cNGN
+  cGHS
+  cXAF
+  USDx
+  EURx
+}
+
+enum TransactionType {
+  DEPOSIT
+  SWAP
+  TRANSFER
+}
+
+enum FxSource {
+  LIVE
+  FIXED
+  IDENTITY
+}
+
+model Wallet {
+  id                      String         @id @default(uuid()) @db.Uuid
+  email                   String?        @unique @db.VarChar(320)
+  mobile                  String?        @unique @db.VarChar(32)
+  createdAt               DateTime       @default(now()) @map("created_at") @db.Timestamptz(6)
+  balances                WalletBalance[]
+  sourceTransactions      Transaction[]  @relation("SourceWallet")
+  destinationTransactions Transaction[]  @relation("DestinationWallet")
+  swapQuotes              SwapQuote[]
+
+  @@map("wallets")
+}
+
+model WalletBalance {
+  walletId  String   @map("wallet_id") @db.Uuid
+  currency  Currency
+  available Decimal  @default(0) @db.Decimal(28, 8)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz(6)
+  wallet    Wallet   @relation(fields: [walletId], references: [id], onDelete: Restrict)
+
+  @@id([walletId, currency])
+  @@map("wallet_balances")
+}
+
+model Transaction {
+  id                  String          @id @default(uuid()) @db.Uuid
+  type                TransactionType
+  sourceWalletId      String?         @map("source_wallet_id") @db.Uuid
+  destinationWalletId String?         @map("destination_wallet_id") @db.Uuid
+  sourceCurrency      Currency        @map("source_currency")
+  sourceAmount        Decimal         @map("source_amount") @db.Decimal(28, 8)
+  destinationCurrency Currency        @map("destination_currency")
+  destinationAmount  Decimal         @map("destination_amount") @db.Decimal(28, 8)
+  appliedRate         Decimal?        @map("applied_rate") @db.Decimal(36, 18)
+  rateAsOf            DateTime?       @map("rate_as_of") @db.Timestamptz(6)
+  fxSource            FxSource?       @map("fx_source")
+  fxSnapshotId        String?         @map("fx_snapshot_id") @db.Uuid
+  createdAt           DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
+  sourceWallet        Wallet?         @relation("SourceWallet", fields: [sourceWalletId], references: [id], onDelete: Restrict)
+  destinationWallet   Wallet?         @relation("DestinationWallet", fields: [destinationWalletId], references: [id], onDelete: Restrict)
+  fxSnapshot          FxSnapshot?     @relation(fields: [fxSnapshotId], references: [id], onDelete: Restrict)
+  idempotencyRecord   IdempotencyRecord?
+
+  @@map("transactions")
+}
+
+model IdempotencyRecord {
+  id             String       @id @default(uuid()) @db.Uuid
+  scope          String       @db.VarChar(96)
+  key            String       @db.VarChar(128)
+  requestHash    String       @map("request_hash") @db.Char(64)
+  transactionId  String?      @unique @map("transaction_id") @db.Uuid
+  responseStatus Int          @map("response_status")
+  responseBody   Json         @map("response_body")
+  createdAt      DateTime     @default(now()) @map("created_at") @db.Timestamptz(6)
+  completedAt    DateTime     @default(now()) @map("completed_at") @db.Timestamptz(6)
+  transaction    Transaction? @relation(fields: [transactionId], references: [id], onDelete: Restrict)
+
+  @@unique([scope, key])
+  @@map("idempotency_records")
+}
+
+model FxSnapshot {
+  id                 String        @id @default(uuid()) @db.Uuid
+  source             FxSource
+  provider           String        @db.VarChar(128)
+  ngnPerUsd          Decimal       @map("ngn_per_usd") @db.Decimal(36, 18)
+  ghsPerUsd          Decimal       @map("ghs_per_usd") @db.Decimal(36, 18)
+  xafPerUsd          Decimal       @map("xaf_per_usd") @db.Decimal(36, 18)
+  eurPerUsd          Decimal       @map("eur_per_usd") @db.Decimal(36, 18)
+  rateAsOf           DateTime      @map("rate_as_of") @db.Timestamptz(6)
+  fetchedAt          DateTime      @default(now()) @map("fetched_at") @db.Timestamptz(6)
+  nextRefreshAt      DateTime      @map("next_refresh_at") @db.Timestamptz(6)
+  freshness          String        @db.VarChar(32)
+  lastLiveSnapshotId String?       @map("last_live_snapshot_id") @db.Uuid
+  lastLiveProvider   String?       @map("last_live_provider") @db.VarChar(128)
+  lastLiveRateAsOf   DateTime?     @map("last_live_rate_as_of") @db.Timestamptz(6)
+  transactions       Transaction[]
+  swapQuotes         SwapQuote[]
+
+  @@unique([provider, rateAsOf, source])
+  @@index([fetchedAt(sort: Desc)])
+  @@map("fx_snapshots")
+}
+
+model SwapQuote {
+  id                      String     @id @default(uuid()) @db.Uuid
+  walletId                String     @map("wallet_id") @db.Uuid
+  fxSnapshotId            String     @map("fx_snapshot_id") @db.Uuid
+  sourceCurrency          Currency   @map("source_currency")
+  destinationCurrency     Currency   @map("destination_currency")
+  sourceAmount            Decimal    @map("source_amount") @db.Decimal(28, 8)
+  quotedRate              Decimal    @map("quoted_rate") @db.Decimal(36, 18)
+  quotedDestinationAmount Decimal    @map("quoted_destination_amount") @db.Decimal(28, 8)
+  createdAt               DateTime   @default(now()) @map("created_at") @db.Timestamptz(6)
+  expiresAt               DateTime   @map("expires_at") @db.Timestamptz(6)
+  wallet                  Wallet     @relation(fields: [walletId], references: [id], onDelete: Restrict)
+  fxSnapshot              FxSnapshot @relation(fields: [fxSnapshotId], references: [id], onDelete: Restrict)
+
+  @@index([walletId, expiresAt])
+  @@map("swap_quotes")
+}
