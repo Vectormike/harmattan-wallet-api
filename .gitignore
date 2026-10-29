@@ -10,3 +10,5 @@ coverage/
 .vscode/
 .yarn/cache/
 .yarn/install-state.gz
+postman/.postman/
+postman/postman/

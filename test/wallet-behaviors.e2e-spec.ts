@@ -88,6 +88,31 @@ describe('Wallet money behaviors', () => {
     expect(await prisma.transaction.count()).toBe(1);
   });
 
+  it.each(Object.values(Currency))(
+    'credits a deposit in %s',
+    async (currency) => {
+      const wallet = await createWallet(
+        `${currency.toLowerCase()}-deposit@example.com`,
+      );
+      const response = await deposit(
+        wallet.body.id,
+        currency,
+        '1',
+        `${currency.toLowerCase()}-deposit-0001`,
+      );
+
+      expect(response.body.balance).toMatchObject({
+        walletId: wallet.body.id,
+        currency,
+        available: '1.00000000',
+      });
+      expect(response.body.transaction).toMatchObject({
+        sourceCurrency: currency,
+        destinationCurrency: currency,
+      });
+    },
+  );
+
   it('falls back and persists when the live rate provider is unreachable', async () => {
     const response = await request(app.getHttpServer())
       .get('/v1/rates')

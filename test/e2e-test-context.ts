@@ -16,7 +16,13 @@ export interface E2eTestContext {
   prisma: PrismaService;
 }
 
-export async function createE2eTestContext(): Promise<E2eTestContext> {
+export interface E2eTestContextOptions {
+  fxProviderUrl?: string;
+}
+
+export async function createE2eTestContext(
+  options: E2eTestContextOptions = {},
+): Promise<E2eTestContext> {
   const container = await new PostgreSqlContainer('postgres:16.6-bookworm')
     .withDatabase('harmattan_test')
     .withUsername('harmattan')
@@ -25,7 +31,7 @@ export async function createE2eTestContext(): Promise<E2eTestContext> {
 
   Object.assign(process.env, {
     DATABASE_URL: container.getConnectionUri(),
-    FX_PROVIDER_URL: 'http://127.0.0.1:1/unavailable',
+    FX_PROVIDER_URL: options.fxProviderUrl ?? 'http://127.0.0.1:1/unavailable',
     FX_REQUEST_TIMEOUT_MS: '100',
     FX_REFRESH_WAIT_TIMEOUT_MS: '500',
     SWAP_QUOTE_TTL_SECONDS: '60',
