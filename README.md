@@ -183,19 +183,3 @@ They may optionally add a short pace delay but never return `429` by themselves.
 Custom migration checks enforce non-negative balances, positive amounts/rates, wallet identifiers, and operation-type invariants. History indexes cover wallet role, cursor order, type, and currency filters.
 
 See [SYSTEM_DESIGN.md](SYSTEM_DESIGN.md) for diagrams and request sequences.
-
-## Assumptions and limitations
-
-- This is a sandbox; deposits do not call a payment provider.
-- The brief explicitly does not require full authentication. UUIDs are identifiers, not authorization.
-- There are no external blockchain or bank withdrawals.
-- Fixed fallback rates are versioned sandbox configuration, not live market data.
-- No deployed URL is required by the assessment.
-
-## With more time
-
-- Add authentication, wallet ownership, RBAC, KYC/AML, and audit access logs.
-- Add production metrics and alerting for lock waits, provider failures, and fallback usage.
-- Add a dedicated quote/limit administration surface.
-- Add provider redundancy and reconciliation jobs.
-- Add load tests and production-grade secret management.
